@@ -1,22 +1,30 @@
-use std::{net::{IpAddr, TcpStream}, io::{BufRead, Write}, sync::mpsc::channel, thread, process};
 use bufstream::BufStream;
+use rustyline::{error::ReadlineError, Editor};
+use std::{
+    error::Error,
+    io::{BufRead, Write},
+    net::{IpAddr, TcpStream},
+    process,
+    sync::mpsc::channel,
+    thread,
+};
 
-fn main() {
+fn main() -> Result<(), Box<dyn Error>> {
     let mut args = std::env::args().skip(1);
     let address: IpAddr = {
         let arg = args.next().unwrap_or_else(|| "127.0.0.1".to_string());
         arg.parse()
-            .expect(&format!("invalid address: {arg}"))
-    }; 
+            .unwrap_or_else(|_| panic!("invalid address: {arg}"))
+    };
 
     let port: u16 = {
         let arg = args.next().unwrap_or_else(|| "6991".to_string());
         arg.parse()
-            .expect(&format!("invalid port: {arg}"))
+            .unwrap_or_else(|_| panic!("invalid port: {arg}"))
     };
 
     let stream_read = TcpStream::connect((address, port))
-        .expect(&format!("failed to connect to {address}:{port}"));
+        .unwrap_or_else(|_| panic!("failed to connect to {address}:{port}"));
     let mut stream_write = stream_read.try_clone().expect("failed to clone connection");
 
     let mut stream_read = BufStream::new(stream_read);
@@ -54,9 +62,11 @@ fn main() {
             loop {
                 match recv.recv() {
                     Ok(message) => {
-                        if let Err(_) = stream_write.write_all(message.as_bytes())
-                            .and_then(|_| stream_write.flush()) {
-                            
+                        if stream_write
+                            .write_all(message.as_bytes())
+                            .and_then(|_| stream_write.flush())
+                            .is_err()
+                        {
                             eprintln!("writer failed");
                         }
                     }
@@ -71,22 +81,23 @@ fn main() {
 
     // input thread
     {
-        let stdin = std::io::stdin();
+        let mut rl = Editor::<()>::new()?;
         loop {
-            let mut line = String::new();
-            match stdin.read_line(&mut line) {
-                Ok(0) => {
-                    // EOF
+            let line = rl.readline("");
+            match line {
+                Ok(mut line) => {
+                    rl.add_history_entry(&line);
+                    line = line.trim().to_string();
+                    line.push_str("\r\n");
+                    send.send(line).unwrap();
+                }
+                Err(ReadlineError::Eof | ReadlineError::Interrupted) => {
                     process::exit(0);
                 }
-                Err(_) => {
+                Err(e) => {
                     eprintln!("failed to read further input");
-                    return;
-                }
-                Ok(_) => {
-                    line = line.trim().to_string();
-                    line.extend("\r\n".chars());
-                    send.send(line).unwrap();
+                    eprintln!("Error: {e:?}");
+                    return Err(Box::new(e));
                 }
             }
         }
