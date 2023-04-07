@@ -7,4 +7,5 @@ edition = "2021"
 
 [dependencies]
 bufstream = "0.1.4"
+libc = "0.2.141"
 rustyline = "10.0.0"

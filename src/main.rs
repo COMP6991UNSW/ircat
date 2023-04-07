@@ -40,7 +40,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                     Ok(0) => {
                         // EOF
                         eprintln!("server stopped responding");
-                        process::exit(1);
+                        // call the input thread to kill this process, so it can release its tty first
+                        unsafe { libc::kill(std::process::id() as i32, libc::SIGTERM) };
                     }
                     Err(e) => {
                         eprintln!("reader failed: {e:?}");
